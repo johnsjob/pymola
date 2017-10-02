@@ -13,6 +13,8 @@ class Quad(OdeModel):
     def __init__(self):
 
         super(Quad, self).__init__()
+        
+        t = sympy.symbols('t')
 
         # states
         phi, theta, psi_, P, Q, R, x, y, z, U, V, W = mech.dynamicsymbols('phi, theta, psi_, P, Q, R, x, y, z, U, V, W')
@@ -81,4 +83,4 @@ class Quad(OdeModel):
             (R).diff(self.t) - (M_z),
             ]
 
-        self.compute_fg()
+        self.compute_fgh()

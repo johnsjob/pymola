@@ -128,9 +128,9 @@ class ComponentRef(Node):
         """
 
         if self.child:
-            return (self.name, ) + self.child[0].to_tuple()
+            return (self.name,) + self.child[0].to_tuple()
         else:
-            return (self.name, )
+            return (self.name,)
 
     @classmethod
     def from_tuple(cls, components: tuple) -> 'ComponentRef':
@@ -205,7 +205,15 @@ class Equation(Node):
 class IfEquation(Node):
     def __init__(self, **kwargs):
         self.conditions = []  # type: List[Union[Expression, Primary, ComponentRef]]
-        self.equations = []  # type: List[Union[Expression, ForEquation, ConnectClause, IfEquation]]
+        self.blocks = []  # type: List[List[Union[Expression, ForEquation, ConnectClause, IfEquation]]]
+        self.comment = ''  # type: str
+        super().__init__(**kwargs)
+
+
+class WhenEquation(Node):
+    def __init__(self, **kwargs):
+        self.conditions = []  # type: List[Union[Expression, Primary, ComponentRef]]
+        self.blocks = []  # type: List[List[Union[Expression, ForEquation, ConnectClause, IfEquation]]]
         self.comment = ''  # type: str
         super().__init__(**kwargs)
 
@@ -244,7 +252,15 @@ class AssignmentStatement(Node):
 class IfStatement(Node):
     def __init__(self, **kwargs):
         self.conditions = []  # type: List[Union[Expression, Primary, ComponentRef]]
-        self.statements = []  # type: List[Union[AssignmentStatement, IfStatement, ForStatement]]
+        self.blocks = []  # type: List[List[Union[AssignmentStatement, IfStatement, ForStatement]]]
+        self.comment = ''  # type: str
+        super().__init__(**kwargs)
+
+
+class WhenStatement(Node):
+    def __init__(self, **kwargs):
+        self.conditions = []  # type: List[Union[Expression, Primary, ComponentRef]]
+        self.blocks = []  # type: List[List[Union[AssignmentStatement, IfStatement, ForStatement]]]
         self.comment = ''  # type: str
         super().__init__(**kwargs)
 
@@ -284,6 +300,13 @@ class Symbol(Node):
         self.order = 0  # type: int
         self.visibility = Visibility.PRIVATE  # type: Visibility
         self.class_modification = None  # type: ClassModification
+        super().__init__(**kwargs)
+
+
+class Function(Node):
+    def __init__(self, **kwargs):
+        self.name = None # type: str
+        self.args = [] # type: List[Union[Expression, Primary, ComponentRef]]
         super().__init__(**kwargs)
 
 
@@ -436,7 +459,8 @@ class Collection(Node):
     def extend(self, other):
         self.files.extend(other.files)
 
-    def find_class(self, component_ref: ComponentRef, within: list = None, check_builtin_classes=False, return_ref=False):
+    def find_class(self, component_ref: ComponentRef, within: list = None, check_builtin_classes=False,
+                   return_ref=False):
         if check_builtin_classes:
             if component_ref.name in ["Real", "Integer", "String", "Boolean"]:
                 c = Class(name=component_ref.name)
@@ -496,7 +520,7 @@ class Collection(Node):
         else:
             return c
 
-    def find_symbol(self, node, component_ref: ComponentRef) -> Symbol:
+    def find_symbol(self, node: Node, component_ref: ComponentRef) -> Symbol:
         sym = node.symbols[component_ref.name]
         if len(component_ref.child) > 0:
             node = self.find_class(sym.type)
