@@ -16,17 +16,17 @@ BUILTINS = dir(__builtins__) + ['psi']
 
 
 class DAE(object):
-
     def __init__(self, states, inputs, outputs, constants,
                  parameters, variables, equations, statements):
-        self.states = states # type: List[sympy.Symbol]
-        self.inputs = inputs # type: List[sympy.Symbol]
-        self.outputs = outputs # type: List[sympy.Symbol]
-        self.constants = constants # type: List[sympy.Symbol]
-        self.parameters = parameters # type: List[sympy.Symbol]
-        self.variables = variables # type: List[sympy.Symbol]
-        self.equations = equations # type: List[sympy.Expr]
-        self.statements = statements # type: List[sympy.Expr]
+        self.x0 = {}  # type: Dict[sympy.Symbol, sympy.Expr]
+        self.states = states  # type: List[sympy.Symbol]
+        self.inputs = inputs  # type: List[sympy.Symbol]
+        self.outputs = outputs  # type: List[sympy.Symbol]
+        self.constants = constants  # type: List[sympy.Symbol]
+        self.parameters = parameters  # type: List[sympy.Symbol]
+        self.variables = variables  # type: List[sympy.Symbol]
+        self.equations = equations  # type: List[sympy.Expr]
+        self.statements = statements  # type: List[sympy.Expr]
 
     def __repr__(self):
         return repr(self.__dict__)
@@ -125,7 +125,11 @@ class SympyGenerator(TreeListener):
         name = tree.name.replace('.', '__')
         while name in BUILTINS:
             name = name + '_'
-        self.model[tree] = mech.dynamicsymbols(name)
+        symbol = mech.dynamicsymbols(name)
+        if tree.class_modification in self.model:
+            # TODO need to store somewhere
+            pass
+        self.model[tree] = symbol
 
     def exitEquation(self, tree: ast.Equation):
         self.model[tree] = self.model[tree.left] - self.model[tree.right]
@@ -135,10 +139,16 @@ class SympyGenerator(TreeListener):
         self.model[tree] = f(*tuple([self.model[a] for a in tree.args]))
 
     def exitIfStatement(self, tree: ast.IfStatement):
-        print('blocks', tree.blocks)
-        print('conditions', tree.conditions)
-        assert len(tree.blocks) == len(tree.conditions)
-        self.model[tree] = sympy.Piecewise(*(zip([self.model[b] for b in tree.blocks], tree.conditions)))
+        blocks = [[self.model[e] for e in b] for b in tree.blocks]
+        conditions = [self.model[c] for c in tree.conditions]
+        pairs = list(zip(blocks, conditions))
+        self.model[tree] = sympy.Piecewise(*pairs)
+
+    def exitIfEquation(self, tree: ast.IfEquation):
+        blocks = [[self.model[e] for e in b] for b in tree.blocks]
+        conditions = [self.model[c] for c in tree.conditions]
+        pairs = list(zip(blocks, conditions))
+        self.model[tree] = sympy.Piecewise(*pairs)
 
     def exitAssignmentStatement(self, tree: ast.AssignmentStatement):
         # more than one left symbol not yet supported
@@ -146,21 +156,86 @@ class SympyGenerator(TreeListener):
         self.model[tree] = self.model[tree.left[0]] - self.model[tree.right]
 
     def enterEvery(self, tree: ast.Node):
-        #print('enter', tree.__class__.__name__)
+        # print('enter', tree.__class__.__name__)
         pass
 
     def exitEvery(self, tree: ast.Node):
-        #print('exit', tree.__class__.__name__)
+        # print('exit', tree.__class__.__name__)
         pass
 
     def exitWhenEquation(self, tree: ast.WhenEquation):
-        blocks = [ [self.model[e] for e in b] for b in tree.blocks ]
-        conditions = [ self.model[c] for c in tree.conditions ]
+        blocks = [[self.model[e] for e in b] for b in tree.blocks]
+        conditions = [self.model[c] for c in tree.conditions]
         pairs = list(zip(blocks, conditions))
-        # print('blocks', blocks)
-        # print('conditions', conditions)
-        # assert len(tree.blocks) == len(tree.conditions)
         self.model[tree] = sympy.Piecewise(*pairs)
+
+    def exitWhenStatement(self, tree: ast.WhenStatement):
+        def exitIfEquation(self, tree: ast.IfEquation):
+            blocks = [[self.model[e] for e in b] for b in tree.blocks]
+            conditions = [self.model[c] for c in tree.conditions]
+            pairs = list(zip(blocks, conditions))
+            self.model[tree] = sympy.Piecewise(*pairs)
+
+    def exitForEquation(self, tree: ast.ForEquation):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitForIndex(self, tree: ast.ForIndex):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitArray(self, tree: ast.Array):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitClassModification(self, tree: ast.ClassModification):
+        self.model[tree] = [self.model[a] for a in tree.arguments]
+
+    def exitComponentClause(self, tree: ast.ComponentClause):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitConnectClause(self, tree: ast.ConnectClause):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitSlice(self, tree: ast.Slice):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitElementModification(self, tree: ast.ElementModification):
+        self.model[tree] = {tree.component: tree.modifications[0].value}
+
+    def exitExtendsClause(self, tree: ast.ExtendsClause):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitForStatement(self, tree: ast.ForStatement):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitIfExpression(self, tree: ast.IfExpression):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitImportAsClause(self, tree: ast.ImportAsClause):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
+
+    def exitImportFromClause(self, tree: ast.ImportFromClause):
+        # TODO
+        raise NotImplementedError(
+            "{:s} not yet handled in sympy generator".format(tree.__class__.__name__))
 
 
 def generate(ast_tree: ast.Collection, model_name: str):
