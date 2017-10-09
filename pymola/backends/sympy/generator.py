@@ -7,6 +7,9 @@ from typing import List
 import sympy
 import sympy.physics.mechanics as mech
 
+import scipy.integrate
+import numpy as np
+
 from pymola import ast
 from pymola.tree import TreeListener, TreeWalker, flatten
 
@@ -15,10 +18,26 @@ FILE_DIR = os.path.dirname(os.path.realpath(__file__))
 BUILTINS = dir(__builtins__) + ['psi']
 
 
+def solve_piecewise(f, v):
+    pairs = []
+    for expr, cond in f.args:
+        pairs.append((sympy.solve(expr, v, dict=True)[0], cond))
+    return sympy.Piecewise(*pairs)
+
+
+def sub_piecewise(v, sol):
+    pairs = [(v.subs(sol.args[i][0]), sol.args[i][1]) for i in range(len(sol.args))]
+    return sympy.Piecewise(*pairs)
+
+
 class DAE(object):
     def __init__(self, states, inputs, outputs, constants,
                  parameters, variables, equations, statements):
         self.x0 = {}  # type: Dict[sympy.Symbol, sympy.Expr]
+        self.u0 = {}  # type: Dict[sympy.Symbol, sympy.Expr]
+        self.p0 = {}  # type: Dict[sympy.Symbol, sympy.Expr]
+        self.c0 = {}  # type: Dict[sympy.Symbol, sympy.Expr]
+
         self.states = states  # type: List[sympy.Symbol]
         self.inputs = inputs  # type: List[sympy.Symbol]
         self.outputs = outputs  # type: List[sympy.Symbol]
@@ -27,6 +46,84 @@ class DAE(object):
         self.variables = variables  # type: List[sympy.Symbol]
         self.equations = equations  # type: List[sympy.Expr]
         self.statements = statements  # type: List[sympy.Expr]
+
+    def simulate(self, dt=0.01):
+        dae = self
+        t = sympy.symbols('t')
+        x = sympy.Matrix(dae.states)
+        xi = {s: i for i, s in enumerate(x)}
+        y = sympy.Matrix(dae.outputs)
+        yi = {s: i for i, s in enumerate(y)}
+        u = sympy.Matrix(dae.inputs)
+        ui = {s: i for i, s in enumerate(u)}
+        p = sympy.Matrix(dae.parameters)
+        pi = {s: i for i, s in enumerate(p)}
+        v = sympy.Matrix(dae.variables)
+        vi = {s: i for i, s in enumerate(v)}
+
+        norm_eqs = []
+        cond_eqs = []
+        for eq in dae.equations:
+            if isinstance(eq, sympy.Piecewise):
+                cond_eqs.append(eq)
+            else:
+                norm_eqs.append(eq)
+
+        norm_stmts = []
+        cond_stmts = []
+        for stmt in dae.statements:
+            if isinstance(stmt, sympy.Piecewise):
+                cond_stmts.append(stmt)
+            else:
+                norm_stmts.append(stmt)
+
+        sol = sympy.solve(list(norm_eqs) + list(norm_stmts), list(x.diff(t)) + list(v) + list(y))
+
+        f = x.diff(t).subs(sol)
+        g = y.subs(sol)
+        lambda_f = sympy.lambdify((t, x, u, p), f)
+        lambda_g = sympy.lambdify((t, x, u, p), g[0])
+
+        x0 = np.array(dae.x0)
+        u0 = np.array(dae.u0)
+        p0 = np.array(dae.p0)
+
+        sim = scipy.integrate.ode(lambda_f)
+        sim.set_initial_value(x0)
+        sim.set_f_params(u0, p0)
+        data = {
+            't': [],
+            'x': [],
+            'y': [],
+            'u': [],
+        }
+        while sim.t + dt < 10:
+            sim.integrate(sim.t + dt)
+            x0 = sim.y
+            y0 = lambda_g(sim.t, x0, u0, p0)
+
+            for eq in cond_eqs + cond_stmts:
+                for block, cond in eq.args:
+                    # check if condition is true
+                    if sympy.lambdify(x, cond)(*x0):
+                        # execute equations in block
+                        for beq in block:
+                            if isinstance(beq, sympy.Function('reinit')):
+                                x0[xi[beq.args[0]]] = sympy.lambdify((t, x, u, p), beq.args[1])(
+                                    sim.t, x0, u0, p0)
+                                sim.set_initial_value(x0, sim.t)
+                        # only execute first true block
+                        continue
+
+            data['t'].append(sim.t)
+            data['x'].append(x0)
+            data['y'].append(y0)
+            data['u'].append(u0)
+
+        for key in data.keys():
+            data[key] = np.array(data[key])
+
+        return data
 
     def __repr__(self):
         return repr(self.__dict__)
@@ -139,7 +236,7 @@ class SympyGenerator(TreeListener):
         self.model[tree] = f(*tuple([self.model[a] for a in tree.args]))
 
     def exitIfStatement(self, tree: ast.IfStatement):
-        blocks = [[self.model[e] for e in b] for b in tree.blocks]
+        blocks = [sympy.Matrix([self.model[e] for e in b]) for b in tree.blocks]
         conditions = [self.model[c] for c in tree.conditions]
         pairs = list(zip(blocks, conditions))
         self.model[tree] = sympy.Piecewise(*pairs)
